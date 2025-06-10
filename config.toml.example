@@ -1,0 +1,5 @@
+port = 8000
+fs_path = "./video"
+uri_path = "./"
+instance_name = "Camera 1"
+video_count = 5
