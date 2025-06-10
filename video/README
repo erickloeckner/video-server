@@ -1,1 +1,0 @@
-Video files are served from here by default. Edit the scripts/capture_motion.py script to save videos to this path by modifying the OUTPUT_PATH variable if using a Raspberry Pi camera.
