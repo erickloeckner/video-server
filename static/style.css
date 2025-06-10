@@ -1,0 +1,40 @@
+body {
+  background: linear-gradient(90deg, rgb(31, 31, 31), rgb(63, 63, 63), rgb(31, 31, 31));
+  font-family: monospace;
+}
+
+h1 {
+  color: rgb(127, 200, 255);
+  font-size: 3rem;
+}
+
+a:link {
+  color: rgb(200 255 255)
+}
+
+a:visited {
+  color: rgb(170 200 170)
+}
+
+.main-div {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.video-div {
+  width: 90%;
+  padding-top: 2%;
+}
+
+.video-el {
+  width: 100%;
+}
+
+.link-div {
+  width: 90%;
+  padding-bottom: 2%;
+  border-bottom: 3px solid rgba(127, 127, 127, 0.5);
+  font-size: 2rem;
+}
