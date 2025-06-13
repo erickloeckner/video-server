@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::{env, process};
 use std::fs;
+use std::fmt::Write;
 
 use chrono::prelude::*;
 use serde::Deserialize;
@@ -11,10 +13,13 @@ struct Config {
     fs_path: String,
     uri_path: String,
     instance_name: String,
-    video_count: u8,
+    video_count: u16,
+    sort_descending: bool,
+    parse_timestamps: bool,
+    disable_static_cache: bool, 
 }
 
-fn list_files(path: &str) -> Vec<String> {
+fn list_files(path: &str, sort_descending: bool) -> Vec<String> {
     let mut out = Vec::new();
     match std::fs::read_dir(path) {
         Ok(v) => {
@@ -31,11 +36,13 @@ fn list_files(path: &str) -> Vec<String> {
         Err(_) => {}
     }
     out.sort();
-    out.reverse();
+    if sort_descending == true {
+        out.reverse();
+    }
     out
 }
 
-fn render_list(files: Vec<String>, path: &str, instance_name: &str, video_count: u8) -> String {
+fn render_list(files: Vec<String>, config: &Config, mut page: u16) -> String {
     let html_head = format!("<!DOCTYPE html>
 <html>
   <head>
@@ -44,28 +51,56 @@ fn render_list(files: Vec<String>, path: &str, instance_name: &str, video_count:
     <link rel=\"stylesheet\" type=\"text/css\" href=\"{}/static/style.css\">
   </head>
   <body>
-", path);
+", config.uri_path);
 
     let html_foot = "  </body>\n</html>\n";
 
     let mut html_body = String::new();
-    html_body.push_str("    <div class=\"main-div\">\n");
-    html_body.push_str(&format!("    <div><h1>{}</div>\n", instance_name));
+    write!(&mut html_body, "    <div class=\"main-div\">\n").ok();
+    write!(&mut html_body, "      <div><h1>{}</div>\n", config.instance_name).ok();
+    
+    let max_pages = match files.len() % (config.video_count as usize) {
+        0 => (files.len() / (config.video_count as usize)) as u16,
+        _ => (files.len() / (config.video_count as usize) + 1) as u16,
+    };
+    let navigation = render_navigation(&config.uri_path, page, max_pages);
+    write!(&mut html_body, "{}", &navigation).ok();
 
-    for (i, v) in files.iter().enumerate() {
-        if i < (video_count as usize) {
-            html_body.push_str(&format!(
-                "      <div class=\"video-div\"><video class=\"video-el\" controls><source src=\"{}/video/{}\"/></video></div>\n",
-                path, v
-            ));
+    if page == 0 { page += 1 }
+    for file in files.iter().skip(((page - 1) * config.video_count) as usize).take(config.video_count as usize) {
+        write!(&mut html_body,
+            "      <div class=\"video-div\"><video class=\"video-el\" controls><source src=\"{}/video/{}\"/></video></div>\n",
+            config.uri_path, file
+        ).ok();
+        if config.parse_timestamps == true {
+            let date = parse_ts(file);
+            write!(&mut html_body, "      <div class=\"link-div\"><a href=\"{}/video/{}\">{}</a></div>\n", config.uri_path, file, date).ok();
+        } else {
+            write!(&mut html_body, "      <div class=\"link-div\"><a href=\"{}/video/{}\">{}</a></div>\n", config.uri_path, file, file).ok();
         }
-        let date = parse_ts(v);
-        html_body.push_str(&format!("      <div class=\"link-div\"><a href=\"{}/video/{}\">{}</a></div>\n", path, v, date));
     }
 
-    html_body.push_str(&format!("    </div>\n"));
+    write!(&mut html_body, "    </div>\n").ok();
 
     format!("{}{}{}", html_head, html_body, html_foot)
+}
+
+fn render_navigation(path: &str, page: u16, max_pages: u16) -> String {
+    let mut out = String::new();
+    write!(&mut out, "      <div class=\"navigation-div\">").ok();
+    if page == 1 {
+        write!(&mut out, "<div class=\"navigation-c\">prev</div>").ok();
+    } else {
+        write!(&mut out, "<div class=\"navigation-c\"><a href=\"{}?page={}\">prev</a></div>", path, page - 1).ok();
+    }
+    write!(&mut out, "<div class=\"navigation-c\"> PAGE {} </div>", page).ok();
+    if page < max_pages {
+        write!(&mut out, "<div class=\"navigation-c\"><a href=\"{}?page={}\">next</a></div>", path, page + 1).ok();
+    } else {
+        write!(&mut out, "<div class=\"navigation-c\">next</div>").ok();
+    }
+    write!(&mut out, "</div>\n").ok();
+    out
 }
 
 fn parse_ts(name: &str) -> String {
@@ -98,22 +133,29 @@ async fn main() {
     let video_dir = warp::path("video")
         .and(warp::fs::dir(config.fs_path.clone()));
 
-    let static_dir = warp::path("static")
-        .and(warp::fs::dir("./static"))
-        .map(|reply| {
-            warp::reply::with_header(reply, "cache-control", "no-cache")
-        });
-
     let port = config.port;
 
     let config_filter = warp::any().map(move || config.clone());
 
+    let static_dir = warp::path("static")
+        .and(warp::fs::dir("./static"))
+        .and(config_filter.clone())
+        .map(|reply, c: Config| {
+            if c.disable_static_cache == true {
+                warp::reply::with_header(reply, "cache-control", "no-cache")
+            } else {
+                warp::reply::with_header(reply, "cache-control", "max-age=14400")
+            }
+        });
+
     let index = warp::get()
         .and(warp::path::end())
         .and(config_filter.clone())
-        .map(|c: Config| {
-            let files = list_files(&c.fs_path);
-            let content = render_list(files, &c.uri_path, &c.instance_name, c.video_count);
+        .and(warp::query::<HashMap<String, u16>>())
+        .map(|c: Config, q: HashMap<String, u16>| {
+            let files = list_files(&c.fs_path, c.sort_descending);
+            let page = q.get("page").unwrap_or(&1);
+            let content = render_list(files, &c, *page);
             warp::reply::html(content)
         });
 
