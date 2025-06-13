@@ -3,3 +3,6 @@ fs_path = "./video"
 uri_path = "./"
 instance_name = "Camera 1"
 video_count = 5
+sort_descending = true
+parse_timestamps = true
+disable_static_cache = false
